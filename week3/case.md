@@ -2,7 +2,7 @@ A veterinary clinic requires a database system to track pet owners, pets, veteri
 
 A pet owner, identified by an owner ID, full name (consisting of first name and last name), and phone number, is not required to have any pets on file at a given time, but every pet must belong to exactly one owner. 
 
-A pet has a pet ID, name, species, and age. Every appointment record tracks an appointment ID, appointment date, and reason for visit, and it must specify exactly one veterinarian and exactly one pet—an appointment cannot exist without.
+A pet has a pet ID, name, species, and age. Every appointment record tracks an appointment ID, appointment date, and reason for visit, and it must specify exactly one veterinarian and exactly one pet—an appointment cannot exist without both.
 
  A veterinarian, identified by a vet ID, full name, and specialization, can conduct multiple appointments over time or none at all. 
 

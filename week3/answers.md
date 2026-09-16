@@ -12,7 +12,10 @@ Vaccination record should be a weak entity. It depends on a Pet to exist, the re
 
 
 ## Task 2 — Specify Participation Constraints
-_Answer here_
+Owner - Pet: Owner || ----------- 0< Pet
+Pet - Appointment: Pet || ---------- 0< Appointment
+Veterinarian - Appointment: Veterinarian || ------------ 0< Appointment
+Pet - Vaccination: Pet || ----------0< Vaccination
 
 
 ## Task 3 — Build the Logical ERD
