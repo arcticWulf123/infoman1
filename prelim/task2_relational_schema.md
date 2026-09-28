@@ -1,0 +1,7 @@
+Member(<u>member_id</u>, member_name, phone, join_date)
+StorageLocation(<u>location_code</u>, description)
+Tool(<u>tool_id</u>, tool_name, category, purchase_date, **location_code**)
+Certification(<u>cert_id</u>, cert_name)
+Borrowing(<u>borrow_id</u>, **member_id**, **tool_id**, borrow_date, return_date)
+ToolRequirement(<u>tool_id</u>, <u>cert_id</u>)
+MemberCertification(<u>member_id</u>, <u>cert_id</u>, completion_date)

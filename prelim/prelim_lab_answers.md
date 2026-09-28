@@ -1,0 +1,3 @@
+1. The query fails because of table scope. FROM borrowing means the query can only use columns from the Borrowing table, and those are borrow_id, member_id, tool_id, borrow_date, and return_date. member_name is not one of them, so MySQL returns ERROR 1054 (42S22): Unknown column 'member_name' in 'where clause'.
+2. SELECT member_id FROM member WHERE member_name = 'Maria Santos'; and SELECT borrow_date, return_date FROM borrowing WHERE member_id = 1;
+3. This shows column scope: a SELECT reads from one table at a time, so any column in SELECT or WHERE must belong to the table named in FROM. The query uses FROM borrowing but filters on member_name, which belongs to member. This came from lesson 5.2 SELECT, FROM and WHERE Clauses.
