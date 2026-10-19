@@ -874,3 +874,54 @@ mysql> SELECT emp_code, first_name, last_name FROM employee WHERE emp_code LIKE 
 **Reflection question:**
 We use the % wildcard over the _ in this situation due to the fact that % wildcard because it matches any number of characters, including zero. Whereas _ wildcard means only one specific digit. %ez returns anything that ends with ez regardless of the number of characters that come before it, while using _ez only returns anything that has one different character followed by ez.
 
+## Task 2 ? Basic Aggregation
+
+**Approach / explanation:**
+I used the functions, COUNT, SUM, AVG, MIN, MAX and COALESCE in order to get the employee count, monthly compensation, average monthly compensation, minimum and max hire dates and sum of all salaries while treating null commissions as 0 with COALESCE.
+
+**Code / query used (if applicable):**
+```sql
+SELECT COUNT(*), COUNT(commission) FROM employee;
+SELECT SUM(salary) FROM employee;
+SELECT AVG(salary), MIN(hire_date), MAX(hire_date) FROM employee;
+SELECT SUM(salary + COALESCE(commission,0)) AS total_compensation FROM employee;
+```
+
+**Evidence (screenshot filename, output, or file reference in this folder):**
+```text
+mysql> SELECT COUNT(*), COUNT(commission) FROM employee;
++----------+-------------------+
+| COUNT(*) | COUNT(commission) |
++----------+-------------------+
+|      500 |               352 |
++----------+-------------------+
+1 row in set (0.018 sec)
+
+mysql> SELECT SUM(salary) FROM employee;
++-------------+
+| SUM(salary) |
++-------------+
+| 33282250.00 |
++-------------+
+1 row in set (0.036 sec)
+
+mysql> SELECT AVG(salary), MIN(hire_date), MAX(hire_date) FROM employee;
++--------------+----------------+----------------+
+| AVG(salary)  | MIN(hire_date) | MAX(hire_date) |
++--------------+----------------+----------------+
+| 66564.500000 | 2015-01-03     | 2026-09-14     |
++--------------+----------------+----------------+
+1 row in set (0.034 sec)
+
+mysql> SELECT SUM(salary + COALESCE(commission,0)) AS total_compensation FROM employee;
++--------------------+
+| total_compensation |
++--------------------+
+|        35387750.00 |
++--------------------+
+1 row in set (0.009 sec)
+```
+
+**Reflection question:**
+COUNT(*) function counts both NULL and non-NULL values. While on the other hand, COUNT(column_name) only returns non-NULL values.
+
