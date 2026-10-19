@@ -925,3 +925,54 @@ mysql> SELECT SUM(salary + COALESCE(commission,0)) AS total_compensation FROM em
 **Reflection question:**
 COUNT(*) function counts both NULL and non-NULL values. While on the other hand, COUNT(column_name) only returns non-NULL values.
 
+## Task 3 ? Grouping Data
+
+**Approach / explanation:**
+I solved this task by using both functions and the GROUP BY clause in order to return the headcount, average salary and every distinct job titles.
+
+**Code / query used (if applicable):**
+```sql
+SELECT COUNT(*), AVG(salary), COUNT(DISTINCT job_title) FROM employee GROUP BY department;
+SELECT department,job_title, COUNT(*) FROM employee GROUP BY department, job_title;
+```
+
+**Evidence (screenshot filename, output, or file reference in this folder):**
+```text
+mysql> SELECT COUNT(*), AVG(salary), COUNT(DISTINCT job_title) FROM employee GROUP BY department;
++----------+--------------+---------------------------+
+| COUNT(*) | AVG(salary)  | COUNT(DISTINCT job_title) |
++----------+--------------+---------------------------+
+|      125 | 75160.000000 |                         3 |
+|       69 | 79513.043478 |                         3 |
+|       50 | 62610.000000 |                         3 |
+|      144 | 71799.652778 |                         3 |
+|      112 | 44028.571429 |                         3 |
++----------+--------------+---------------------------+
+5 rows in set (0.522 sec)
+
+mysql> SELECT department,job_title, COUNT(*) AS headcount FROM employee GROUP BY department, job_title;
++-------------+----------------------+-----------+
+| department  | job_title            | headcount |
++-------------+----------------------+-----------+
+| Sales       | Sales Manager        |        49 |
+| Sales       | Account Manager      |        50 |
+| Engineering | QA Analyst           |        39 |
+| Sales       | Sales Representative |        45 |
+| Engineering | Software Engineer    |        44 |
+| Engineering | DevOps Engineer      |        42 |
+| HR          | HR Specialist        |        20 |
+| HR          | Recruiter            |        12 |
+| Finance     | Financial Analyst    |        24 |
+| Finance     | Finance Manager      |        24 |
+| Support     | Support Lead         |        29 |
+| HR          | HR Manager           |        18 |
+| Support     | Support Specialist   |        43 |
+| Finance     | Accountant           |        21 |
+| Support     | Support Agent        |        40 |
++-------------+----------------------+-----------+
+15 rows in set (0.198 sec)
+```
+
+**Reflection question:**
+When using GROUP BY, SQL combines multiple rows into one result row for each group. Any column included in the SELECT list must either be part of the grouping or be calculated with an aggregate function such as COUNT(), AVG(), SUM(), MIN(), or MAX().
+
