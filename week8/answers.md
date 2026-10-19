@@ -1,4 +1,4 @@
-# INFOMAN1 ? Week 8 Lab Answers
+# INFOMAN1 — Week 8 Lab Answers
 
 Name: Jade Roland Eduard C. Pinon
 Student ID: 2511036
@@ -7,7 +7,7 @@ Date submitted: 10/19/2026
 
 **Dataset check:** `SELECT COUNT(*) FROM employee;` returned: 500
 
-## Task 1 ? Pattern Matching Basics
+## Task 1 — Pattern Matching Basics
 
 **Approach / explanation:**
 I solved the task by utilizing wildcards, both % and _ to get the last names that end with 'ez' and first names that start with 'Ma'. I also used _ in order to search for the employee codes that start with E and employees that have 0 in the third character of their code.
@@ -874,7 +874,7 @@ mysql> SELECT emp_code, first_name, last_name FROM employee WHERE emp_code LIKE 
 **Reflection question:**
 We use the % wildcard over the _ in this situation due to the fact that % wildcard because it matches any number of characters, including zero. Whereas _ wildcard means only one specific digit. %ez returns anything that ends with ez regardless of the number of characters that come before it, while using _ez only returns anything that has one different character followed by ez.
 
-## Task 2 ? Basic Aggregation
+## Task 2 — Basic Aggregation
 
 **Approach / explanation:**
 I used the functions, COUNT, SUM, AVG, MIN, MAX and COALESCE in order to get the employee count, monthly compensation, average monthly compensation, minimum and max hire dates and sum of all salaries while treating null commissions as 0 with COALESCE.
@@ -925,7 +925,7 @@ mysql> SELECT SUM(salary + COALESCE(commission,0)) AS total_compensation FROM em
 **Reflection question:**
 COUNT(*) function counts both NULL and non-NULL values. While on the other hand, COUNT(column_name) only returns non-NULL values.
 
-## Task 3 ? Grouping Data
+## Task 3 — Grouping Data
 
 **Approach / explanation:**
 I solved this task by using both functions and the GROUP BY clause in order to return the headcount, average salary and every distinct job titles.
@@ -976,7 +976,7 @@ mysql> SELECT department,job_title, COUNT(*) AS headcount FROM employee GROUP BY
 **Reflection question:**
 When using GROUP BY, SQL combines multiple rows into one result row for each group. Any column included in the SELECT list must either be part of the grouping or be calculated with an aggregate function such as COUNT(), AVG(), SUM(), MIN(), or MAX().
 
-## Task 4 ? Advanced Filtering with HAVING
+## Task 4 — Advanced Filtering with HAVING
 
 **Approach / explanation:**
 I used the SELECT function to use both functions and GROUP BY to sort data into respective departments. I also utilized HAVING in order to calculate aggregate groups, as WHERE cannot be used as it filters individual rows BEFORE grouping occurs.
