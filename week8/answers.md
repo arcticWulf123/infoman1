@@ -976,3 +976,47 @@ mysql> SELECT department,job_title, COUNT(*) AS headcount FROM employee GROUP BY
 **Reflection question:**
 When using GROUP BY, SQL combines multiple rows into one result row for each group. Any column included in the SELECT list must either be part of the grouping or be calculated with an aggregate function such as COUNT(), AVG(), SUM(), MIN(), or MAX().
 
+## Task 4 ? Advanced Filtering with HAVING
+
+**Approach / explanation:**
+I used the SELECT function to use both functions and GROUP BY to sort data into respective departments. I also utilized HAVING in order to calculate aggregate groups, as WHERE cannot be used as it filters individual rows BEFORE grouping occurs.
+
+**Code / query used (if applicable):**
+```sql
+SELECT department, COUNT(*), AVG(salary), COUNT(DISTINCT job_title) FROM employee GROUP BY department HAVING AVG(salary) >= 70000;
+SELECT department, COUNT(*) AS headcount FROM employee WHERE status = 'Active' GROUP BY department HAVING COUNT(*) > 50;
+```
+
+**Evidence (screenshot filename, output, or file reference in this folder):**
+```text
+mysql> SELECT department, COUNT(*), AVG(salary), COUNT(DISTINCT job_title) FROM employee GROUP BY department HAVING AVG(salary) >= 70000;
++-------------+----------+--------------+---------------------------+
+| department  | COUNT(*) | AVG(salary)  | COUNT(DISTINCT job_title) |
++-------------+----------+--------------+---------------------------+
+| Engineering |      125 | 75160.000000 |                         3 |
+| Finance     |       69 | 79513.043478 |                         3 |
+| Sales       |      144 | 71799.652778 |                         3 |
++-------------+----------+--------------+---------------------------+
+3 rows in set (0.195 sec)
+
+mysql> SELECT department, COUNT(*) AS headcount FROM employee WHERE status = 'Active' GROUP BY department HAVING COUNT(*) > 50;
++-------------+-----------+
+| department  | headcount |
++-------------+-----------+
+| Sales       |       116 |
+| Engineering |       104 |
+| Finance     |        52 |
+| Support     |        99 |
++-------------+-----------+
+4 rows in set (0.063 sec)
+```
+
+**Reflection question:**
+You cannot use WHERE clause as it only filters individual rows before grouping occurs. Having is the alternative when working with grouped elements.
+
+## Self-Check
+
+- [ ] All tasks committed with individual, meaningful commit messages
+- [ ] All files placed inside `week08/`
+- [ ] This file completed and renamed `answers.md`
+- [ ] Repository link pasted into Moodle (no files uploaded)
