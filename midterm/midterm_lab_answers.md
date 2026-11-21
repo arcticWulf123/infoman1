@@ -805,28 +805,58 @@ Why is `= NULL` the wrong way to find unbooked venues, and what is the correct t
 ## Task 6: Schema Evolution & Cross-Week Synthesis
 
 ### Approach
-<!-- Explain how you added venue_status and why you chose the CHECK values -->
+
+`venue_status` is an operational attribute of a venue, so it belongs in `venue`, not in `booking`. The three allowed values describe the states EventHub actually uses: `ACTIVE` (bookable), `RENOVATION` (temporarily unavailable), and `INACTIVE` (retired). A `CHECK` constraint enforces that domain in the database rather than relying on application code.
+
+The column is declared `NOT NULL DEFAULT 'ACTIVE'` because the table already holds rows. The default gives MySQL a value for every existing row, so the `ALTER` succeeds without a manual backfill; without a default, adding a `NOT NULL` column to a populated table would fail.
+
+The status change targets `V-PARK` by its primary key, `venue_code`, so exactly one row is affected and the preview/count pattern is unnecessary for a single known key. The invalid-status test then proves the `CHECK` is live: `'CLOSED'` is outside the allowed list, so the row is rejected and stays `ACTIVE`.
+
+The report joins `venue` → `booking` → `session`, filters to active venues, groups by venue, and aggregates the ticket data. `COUNT(*)` counts booking lines, `SUM(tickets_booked)` gives attendees, `AVG(ticket_price)` gives the average price, and `SUM(tickets_booked * ticket_price)` gives revenue. `HAVING AVG(ticket_price) > 300.00` filters groups (not rows), and `ORDER BY total_revenue DESC` puts the highest-earning venue first. `V-PARK` drops out because it is now under renovation; `V-CAMPUS` drops out because the inner join finds no bookings for it.
 
 ### 1. ALTER TABLE Statement & Status Constraint
 
 ```sql
+ALTER TABLE venue
+    ADD COLUMN venue_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    ADD CONSTRAINT chk_venue_status
+        CHECK (venue_status IN ('ACTIVE', 'RENOVATION', 'INACTIVE'));
+
+SELECT venue_code, venue_name, venue_status
+FROM venue
+ORDER BY venue_code;
 ```
+
+All four existing venues are backfilled with `ACTIVE`, including `V-CAMPUS`.
 
 ### 2. Targeted Primary-Key UPDATE
 
 ```sql
+UPDATE venue
+SET venue_status = 'RENOVATION'
+WHERE venue_code = 'V-PARK';
+
+SELECT venue_code, venue_name, venue_status
+FROM venue
+ORDER BY venue_code;
 ```
+
+`V-PARK` becomes `RENOVATION`; the other three venues remain `ACTIVE`.
 
 ### 3. Constraint Test (invalid status)
 
 - **Invalid SQL Statement:**
 
   ```sql
+  UPDATE venue
+  SET venue_status = 'CLOSED'
+  WHERE venue_code = 'V-METRO';
   ```
 
 - **MySQL Error Message Received:**
 
   ```
+  ERROR 3819 (HY000) at line 40: Check constraint 'chk_venue_status' is violated.
   ```
 
 ### 4. Integrated Synthesis Report Query
@@ -834,16 +864,36 @@ Why is `= NULL` the wrong way to find unbooked venues, and what is the correct t
 **SQL Query:**
 
 ```sql
+SELECT v.venue_name,
+       v.venue_city,
+       COUNT(*)                               AS total_bookings,
+       SUM(s.tickets_booked)                  AS total_attendees,
+       ROUND(AVG(s.ticket_price), 2)          AS avg_ticket_price,
+       SUM(s.tickets_booked * s.ticket_price) AS total_revenue
+FROM venue AS v
+JOIN booking AS b ON b.venue_code = v.venue_code
+JOIN session AS s ON s.booking_id = b.booking_id
+WHERE v.venue_status = 'ACTIVE'
+GROUP BY v.venue_code, v.venue_name, v.venue_city
+HAVING AVG(s.ticket_price) > 300.00
+ORDER BY total_revenue DESC;
 ```
 
 **Output:**
 
 ```
+venue_name               venue_city   total_bookings  total_attendees  avg_ticket_price  total_revenue
+Metro Tech Auditorium    Quezon City  3               16               706.67            7340.00
+Bayview Convention Hall  Manila       2               8                350.00            2800.00
 ```
+
+Two rows. `V-PARK` is excluded by the `ACTIVE` filter, and `V-CAMPUS` is excluded by the inner join because it has no bookings. Both remaining venues clear the `AVG(ticket_price) > 300.00` threshold.
 
 ### Reflection
 
 Why does adding `NOT NULL DEFAULT 'ACTIVE'` succeed on a table that already holds rows?
+
+A `NOT NULL` column normally cannot be added to a populated table, because the existing rows would have no value for it. Supplying `DEFAULT 'ACTIVE'` gives MySQL a value to write into every existing row during the `ALTER`, so the constraint is satisfied immediately. The default also applies to future `INSERT`s that omit the column, which keeps new venues valid without extra application logic.
 
 ---
 
