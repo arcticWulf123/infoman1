@@ -341,69 +341,216 @@ Which table in your schema needed a composite primary key, and why?
 ## Task 3: Data Migration & Safe DML Operations
 
 ### Approach
-<!-- Explain how you moved data from event_booking_flat into your 3NF tables without data loss, including how speaker names were split -->
 
-### Code / Query Used
-<!-- Paste or summarize your migration INSERT statements and the V-CAMPUS insert (full script is in task3_dml_operations.sql) -->
+The migration is set-based rather than hand-typed: `INSERT INTO ... SELECT DISTINCT` from `event_booking_flat` collapses each repeated group into one entity row, so the 7 flat rows become 4 organizers, 3 venues, 6 bookings, and 7 sessions. `DISTINCT` is what removes the redundant copies that caused the update anomaly in Task 1.
+
+`speaker_list` cannot be inserted directly because it is a comma-separated string. A temporary `digits` table (values 1–5) generates one row per position in the list. The expression
 
 ```sql
+SUBSTRING_INDEX(SUBSTRING_INDEX(speaker_list, ',', d.n), ',', -1)
 ```
 
+extracts the *n*-th name, and `TRIM()` removes the space after each comma (`' Engr. Cruz'` → `'Engr. Cruz'`). The number of names is found by counting commas: `LENGTH(list) - LENGTH(REPLACE(list, ',', '')) + 1`. That produces one atomic speaker per row; `INSERT IGNORE` skips repeats such as `Dr. Perez`, which appears in two bookings and is blocked by `UNIQUE(speaker_name)`. The junction table is populated by joining the split names back to `Speaker` to recover the surrogate `speaker_id`.
+
+A reconciliation query runs **before** any price change to prove nothing was lost: the normalized `session` table and the flat table must both report 31 tickets and 14,800.00 gross revenue. The new `V-CAMPUS` row is added after reconciliation. `booked_at` takes its `DEFAULT CURRENT_TIMESTAMP` because the flat table contains no booking timestamp.
+
+Both DML operations follow the 4-step Safe Change Loop: preview the exact rows, confirm the count, execute the targeted statement, then verify. The script ends with an intentionally invalid insert to prove the `CHECK` constraint rejects a negative price.
+
+### Code / Query Used
+
+Full script saved as `task3_dml_operations.sql`. Migration and new-venue statements:
+
+```sql
+USE eventhub_midterm;
+
+-- Organizers (4 rows)
+INSERT INTO organizer (organizer_id, organizer_name, organizer_email)
+SELECT DISTINCT organizer_id, organizer_name, organizer_email
+FROM event_booking_flat;
+
+-- Venues (3 rows)
+INSERT INTO venue (venue_code, venue_name, venue_city, venue_capacity)
+SELECT DISTINCT venue_code, venue_name, venue_city, venue_capacity
+FROM event_booking_flat;
+
+-- Bookings (6 rows)
+INSERT INTO booking (booking_id, booking_date, event_title, organizer_id, venue_code)
+SELECT DISTINCT booking_id, booking_date, event_title, organizer_id, venue_code
+FROM event_booking_flat;
+
+-- Sessions (7 rows)
+INSERT INTO session (booking_id, session_code, ticket_category, ticket_price, tickets_booked)
+SELECT DISTINCT booking_id, session_code, ticket_category, ticket_price, tickets_booked
+FROM event_booking_flat;
+
+-- Helper table for splitting the comma list
+DROP TEMPORARY TABLE IF EXISTS digits;
+CREATE TEMPORARY TABLE digits (n INT PRIMARY KEY);
+INSERT INTO digits VALUES (1), (2), (3), (4), (5);
+
+-- Speakers (7 rows), one atomic name per row
+INSERT IGNORE INTO speaker (speaker_name)
+SELECT DISTINCT TRIM(
+           SUBSTRING_INDEX(SUBSTRING_INDEX(f.speaker_list, ',', d.n), ',', -1)
+       ) AS speaker_name
+FROM event_booking_flat AS f
+JOIN digits AS d
+  ON d.n <= 1 + (LENGTH(f.speaker_list) - LENGTH(REPLACE(f.speaker_list, ',', '')))
+WHERE f.speaker_list IS NOT NULL
+  AND f.speaker_list <> '';
+
+-- SessionSpeaker junction (11 rows)
+INSERT IGNORE INTO sessionspeaker (booking_id, session_code, speaker_id)
+SELECT DISTINCT f.booking_id, f.session_code, sp.speaker_id
+FROM event_booking_flat AS f
+JOIN digits AS d
+  ON d.n <= 1 + (LENGTH(f.speaker_list) - LENGTH(REPLACE(f.speaker_list, ',', '')))
+JOIN speaker AS sp
+  ON sp.speaker_name = TRIM(
+         SUBSTRING_INDEX(SUBSTRING_INDEX(f.speaker_list, ',', d.n), ',', -1)
+     )
+WHERE f.speaker_list IS NOT NULL
+  AND f.speaker_list <> '';
+
+-- Reconciliation (before the price update)
+SELECT 'organizer' AS table_name, COUNT(*) AS rows_inserted FROM organizer
+UNION ALL SELECT 'venue',          COUNT(*) FROM venue
+UNION ALL SELECT 'booking',        COUNT(*) FROM booking
+UNION ALL SELECT 'session',        COUNT(*) FROM session
+UNION ALL SELECT 'speaker',        COUNT(*) FROM speaker
+UNION ALL SELECT 'sessionspeaker', COUNT(*) FROM sessionspeaker;
+
+SELECT
+    (SELECT SUM(tickets_booked) FROM session)                AS normalized_tickets,
+    (SELECT SUM(tickets_booked) FROM event_booking_flat)     AS flat_tickets,
+    (SELECT SUM(tickets_booked * ticket_price) FROM session) AS normalized_revenue,
+    (SELECT SUM(tickets_booked * ticket_price) FROM event_booking_flat) AS flat_revenue;
+
+-- New venue
+INSERT INTO venue (venue_code, venue_name, venue_city, venue_capacity)
+VALUES ('V-CAMPUS', 'University Amphitheater', 'Quezon City', 500);
+```
+
+Reconciliation output, captured before the price update:
+
+```text
+table_name      rows_inserted
+organizer       4
+venue           3
+booking         6
+session         7
+speaker         7
+sessionspeaker  11
+
+normalized_tickets  flat_tickets  normalized_revenue  flat_revenue
+31                  31            14800.00            14800.00
+```
+
+Both sides agree on 31 tickets and 14,800.00, so the migration is lossless.
+
 ### Safe Change Loop: 10% Ticket Price Increase
-<!-- Document each of the 4 steps of the Safe Change Loop -->
 
 - **Step 1 (Preview Rows):**
 
   ```sql
+  SELECT booking_id, session_code, ticket_category, ticket_price,
+         ROUND(ticket_price * 1.10, 2) AS new_price
+  FROM session
+  WHERE ticket_price > 400.00
+  ORDER BY booking_id, session_code;
   ```
 
+  Preview: 4 rows — 500.00 → 550.00, 1200.00 → 1320.00, 1500.00 → 1650.00, 600.00 → 660.00. The 350.00 and 250.00 tickets are untouched because the condition is strictly `> 400.00`.
+
 - **Step 2 (Confirm Target Count):**
-  
+
+  ```sql
+  SELECT COUNT(*) AS target_rows
+  FROM session
+  WHERE ticket_price > 400.00;
+  ```
+
+  Target count: **4**.
+
 - **Step 3 (Execute UPDATE):**
 
   ```sql
+  UPDATE session
+  SET ticket_price = ROUND(ticket_price * 1.10, 2)
+  WHERE ticket_price > 400.00;
   ```
 
 - **Step 4 (Verify Changes):**
 
   ```sql
+  SELECT booking_id, session_code, ticket_category, ticket_price
+  FROM session
+  ORDER BY ticket_price DESC;
   ```
 
+  Verification: the four raised prices now read 660.00, 1320.00, 550.00, and 1650.00; revenue moves from 14,800.00 to 15,750.00. The script is applied only once — a second run would compound the increase because the new prices are still above 400.00.
+
 ### Safe Change Loop: DELETE of `V-TEMP`
+
+The temporary venue is inserted first, then removed by its primary key:
+
+```sql
+INSERT INTO venue (venue_code, venue_name, venue_city, venue_capacity)
+VALUES ('V-TEMP', 'Temporary Venue', 'Manila', 50);
+```
 
 - **Step 1 (Preview Rows):**
 
   ```sql
+  SELECT * FROM venue WHERE venue_code = 'V-TEMP';
   ```
 
+  One row: `V-TEMP | Temporary Venue | Manila | 50`.
+
 - **Step 2 (Confirm Target Count):**
-  
+
+  ```sql
+  SELECT COUNT(*) AS target_rows FROM venue WHERE venue_code = 'V-TEMP';
+  ```
+
+  Target count: **1**.
+
 - **Step 3 (Execute DELETE):**
 
   ```sql
+  DELETE FROM venue WHERE venue_code = 'V-TEMP';
   ```
 
 - **Step 4 (Verify Changes):**
 
   ```sql
+  SELECT COUNT(*) AS remaining FROM venue WHERE venue_code = 'V-TEMP';
   ```
 
+  Verification: **0** rows remain. `V-CAMPUS` is still present, so Task 5 can still use it as the unbooked venue.
+
 ### Evidence: Constraint Protection Verification
-<!-- Show the query attempting to insert invalid data (negative ticket price) and the MySQL error response -->
 
 - **Invalid SQL Statement:**
 
   ```sql
+  INSERT INTO session (booking_id, session_code, ticket_category, ticket_price, tickets_booked)
+  VALUES (101, 'SESS-CHK', 'Standard', -100.00, 0);
   ```
+
+  `booking_id = 101` is an existing booking, so the foreign key passes and only the `CHECK` can reject the row.
 
 - **MySQL Error Message Received:**
 
   ```
+  ERROR 3819 (HY000) at line 142: Check constraint 'chk_ticket_price' is violated.
   ```
 
 ### Reflection
 
 Why is the `DELETE` targeted by primary key rather than by venue name?
+
+`venue_code` is the primary key, so it identifies exactly one row and cannot change accidentally. A venue name is descriptive text: it is not unique, it can be duplicated or misspelled, and it might be renamed later. `DELETE FROM venue WHERE venue_name = 'Temporary Venue'` could delete several rows or none at all, and the only warning would be the affected-row count. Filtering by the primary key also makes the preview and the count meaningful — if Step 1 shows one row and Step 2 returns 1, the DELETE is guaranteed to remove exactly what was inspected.
 
 ---
 
