@@ -557,30 +557,70 @@ Why is the `DELETE` targeted by primary key rather than by venue name?
 ## Task 4: Filtering, Functions & Aggregate Analytics
 
 ### Approach
-<!-- Explain how you chose filters, wildcards, and grouping columns -->
+
+Query 1 needs data from two tables: `booking_date` lives in `booking`, while `ticket_category` and `ticket_price` live in `session`, so I joined them on `booking_id`. `BETWEEN` is inclusive of both endpoints. The parentheses are essential because `AND` binds tighter than `OR`: without them the query would become `(date range AND VIP) OR price > 500`, which would include booking 106's 660.00 ticket even though it is dated 2025-04-22.
+
+Query 2 joins `organizer` to `booking` on `organizer_id`. `CONCAT()` assembles the contact card into one string; `DATEDIFF('2025-05-01', booking_date)` returns a positive day count because the first argument is the later date.
+
+Query 3 reads `venue` alone. `LIKE '%City'` anchors the match at the end of the string, while `LIKE 'M%'` anchors it at the start. `V-CAMPUS` is included because it was added in Task 3.
+
+Query 4 groups `session` rows by `ticket_category`. `SUM(tickets_booked * ticket_price)` is the gross revenue per category, and the aggregate filter `HAVING SUM(tickets_booked) >= 5` removes categories with fewer than five tickets. Prices are the post-increase values from Task 3.
 
 ### Query 1: Compound Logical Filtering with Precedence
 
 **SQL Query:**
 
 ```sql
+SELECT b.booking_id,
+       b.event_title,
+       b.booking_date,
+       s.session_code,
+       s.ticket_category,
+       s.ticket_price
+FROM booking AS b
+JOIN session AS s ON s.booking_id = b.booking_id
+WHERE b.booking_date BETWEEN '2025-04-10' AND '2025-04-20'
+  AND (s.ticket_category = 'VIP' OR s.ticket_price > 500.00)
+ORDER BY b.booking_date, s.session_code;
 ```
 
 **Output:**
 
 ```
+booking_id  event_title             booking_date  session_code  ticket_category  ticket_price
+101         Modern Web & DB Summit  2025-04-10    SESS-A1       Standard         550.00
+101         Modern Web & DB Summit  2025-04-10    SESS-A2       VIP              1320.00
+105         Health Informatics 2025 2025-04-20    SESS-D1       VIP              1650.00
 ```
+
+3 rows: booking 106 (dated 2025-04-22) is correctly excluded by the parentheses.
 
 ### Query 2: Scalar String & Date Functions
 
 **SQL Query:**
 
 ```sql
+SELECT o.organizer_name,
+       CONCAT(o.organizer_name, ' <', o.organizer_email, '>') AS contact_card,
+       b.booking_id,
+       b.event_title,
+       b.booking_date,
+       DATEDIFF('2025-05-01', b.booking_date) AS days_elapsed
+FROM organizer AS o
+JOIN booking AS b ON b.organizer_id = o.organizer_id
+ORDER BY b.booking_date;
 ```
 
 **Output:**
 
 ```
+organizer_name           contact_card                                                    booking_id  event_title                 booking_date  days_elapsed
+Tech Forward PH          Tech Forward PH <info@techforward.ph>                           101         Modern Web & DB Summit     2025-04-10    21
+Green Earth Initiative   Green Earth Initiative <contact@greenearth.org>                102         Urban Ecology Seminar      2025-04-12    19
+Innovate Campus Lab      Innovate Campus Lab <lead@innovatecampus.edu>                  103         AI & Cloud Infrastructure  2025-04-15    16
+Green Earth Initiative   Green Earth Initiative <contact@greenearth.org>                104         Community Climate Action   2025-04-18    13
+Digital Health Alliance  Digital Health Alliance <care@digitalhealth.ph>                105         Health Informatics 2025    2025-04-20    11
+Digital Health Alliance  Digital Health Alliance <care@digitalhealth.ph>                106         Telemedicine Implementation 2025-04-22    9
 ```
 
 ### Query 3: Pattern Matching with LIKE Wildcards
@@ -588,28 +628,55 @@ Why is the `DELETE` targeted by primary key rather than by venue name?
 **SQL Query:**
 
 ```sql
+SELECT venue_code,
+       venue_name,
+       venue_city,
+       venue_capacity
+FROM venue
+WHERE (venue_city LIKE '%City' OR venue_city LIKE 'M%')
+ORDER BY venue_city, venue_name;
 ```
 
 **Output:**
 
 ```
+venue_code  venue_name               venue_city   venue_capacity
+V-BAY       Bayview Convention Hall  Manila       150
+V-METRO     Metro Tech Auditorium    Quezon City  300
+V-CAMPUS    University Amphitheater  Quezon City  500
 ```
+
+3 rows: two cities ending in "City" plus Manila starting with "M"; Pasig is excluded.
 
 ### Query 4: GROUP BY and HAVING Summary
 
 **SQL Query:**
 
 ```sql
+SELECT ticket_category,
+       SUM(tickets_booked)                AS total_tickets,
+       SUM(tickets_booked * ticket_price) AS gross_revenue
+FROM session
+GROUP BY ticket_category
+HAVING SUM(tickets_booked) >= 5
+ORDER BY gross_revenue DESC;
 ```
 
 **Output:**
 
 ```
+ticket_category  total_tickets  gross_revenue
+Standard         18             8960.00
+Student          10             2500.00
 ```
+
+VIP is excluded because it has only 3 tickets, below the `HAVING SUM(tickets_booked) >= 5` threshold.
 
 ### Reflection
 
 Why does Query 4 filter with `HAVING` instead of `WHERE`?
+
+`WHERE` filters individual rows *before* `GROUP BY` runs, so it can only test columns that exist on each row. `HAVING` filters *after* the groups are formed, which is the only point at which `SUM(tickets_booked)` has a value. Writing `WHERE SUM(tickets_booked) >= 5` would be invalid because no single session row holds that total. The same distinction explains why the date and price conditions in Query 1 belong in `WHERE`: they test individual rows.
 
 ---
 
