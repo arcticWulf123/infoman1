@@ -683,54 +683,122 @@ Why does Query 4 filter with `HAVING` instead of `WHERE`?
 ## Task 5: Multi-Table Joins & Outer Join Diagnostics
 
 ### Approach
-<!-- Explain which tables you joined, in what order, and which keys you joined on -->
+
+`booking` is the hub table: it holds `organizer_id` and `venue_code`, and `session` points back to it through `booking_id`. The join order follows those keys:
+
+`booking` → `organizer` on `organizer_id` → `venue` on `venue_code` → `session` on `booking_id`.
+
+That produces one row per `(booking_id, session_code)`, which is the same grain as `event_booking_flat`, so the row count proves the reconstruction is lossless.
+
+For the missing-record query, the direction is reversed: `venue` is the preserved (left) table and `booking` is the optional (right) side. The `LEFT JOIN` keeps every venue; `WHERE b.booking_id IS NULL` then keeps only the rows where no booking matched. Because `V-TEMP` was deleted in Task 3, `V-CAMPUS` is the only venue that has never been booked.
+
+The trap comparison extends that same `LEFT JOIN` with a second one to `session`. Version A filters in `WHERE`, which runs after the join and discards the NULL-extended rows. Version B moves the filter into `ON`, where it only controls which sessions match, so venues without VIP sessions are still preserved.
 
 ### 1. Multi-Table INNER JOIN
 
 **SQL Query:**
 
 ```sql
+SELECT b.event_title,
+       o.organizer_name,
+       v.venue_name,
+       s.ticket_category,
+       s.tickets_booked,
+       (s.tickets_booked * s.ticket_price) AS total_price
+FROM booking AS b
+JOIN organizer AS o ON o.organizer_id = b.organizer_id
+JOIN venue AS v     ON v.venue_code   = b.venue_code
+JOIN session AS s   ON s.booking_id   = b.booking_id
+ORDER BY b.booking_id, s.session_code;
 ```
 
 **Output:**
 
 ```
+event_title                  organizer_name           venue_name                   ticket_category  tickets_booked  total_price
+Modern Web & DB Summit       Tech Forward PH          Metro Tech Auditorium        Standard         4               2200.00
+Modern Web & DB Summit       Tech Forward PH          Metro Tech Auditorium        VIP              2               2640.00
+Urban Ecology Seminar        Green Earth Initiative   Bayview Convention Hall      Standard         5               1750.00
+AI & Cloud Infrastructure    Innovate Campus Lab      Metro Tech Auditorium        Student          10              2500.00
+Community Climate Action     Green Earth Initiative   Bayview Convention Hall      Standard         3               1050.00
+Health Informatics 2025      Digital Health Alliance  Greenfield Innovation Center VIP              1               1650.00
+Telemedicine Implementation  Digital Health Alliance  Greenfield Innovation Center Standard         6               3960.00
 ```
+
+7 rows — the same grain as `event_booking_flat`, so the join is lossless. The totals sum to 15,750.00, which is the post-Task-3 price level rather than the flat table's 14,800.00.
 
 ### 2. Finding Unbooked Venues (LEFT JOIN ... IS NULL)
 
 **SQL Query:**
 
 ```sql
+SELECT v.venue_code,
+       v.venue_name,
+       v.venue_city,
+       v.venue_capacity
+FROM venue AS v
+LEFT JOIN booking AS b ON b.venue_code = v.venue_code
+WHERE b.booking_id IS NULL
+ORDER BY v.venue_code;
 ```
 
 **Output:**
 
 ```
+venue_code  venue_name               venue_city   venue_capacity
+V-CAMPUS    University Amphitheater  Quezon City  500
 ```
+
+Exactly one row: `V-CAMPUS` is the only venue with no booking. `V-TEMP` does not appear because Task 3 deleted it.
 
 ### 3. The "Silent Inner Join" Trap Comparison
 
 - **Version A (Flawed WHERE filter):**
 
   ```sql
+  SELECT v.venue_code,
+         v.venue_name,
+         b.booking_id,
+         s.ticket_category
+  FROM venue AS v
+  LEFT JOIN booking AS b ON b.venue_code = v.venue_code
+  LEFT JOIN session AS s ON s.booking_id = b.booking_id
+  WHERE s.ticket_category = 'VIP'
+  ORDER BY v.venue_code, b.booking_id;
   ```
 
-  *Result / Behavior:*
-  
+  *Result / Behavior:* Only venues that actually have a VIP session survive. `V-BAY` (Standard only) and `V-CAMPUS` (no bookings) disappear, even though the query uses `LEFT JOIN`. The outer join has silently become an inner join.
+
+  **Observed:** 2 rows — `V-METRO` / booking 101 / VIP and `V-PARK` / booking 105 / VIP.
+
 - **Version B (Correct ON condition):**
 
   ```sql
+  SELECT v.venue_code,
+         v.venue_name,
+         b.booking_id,
+         s.ticket_category
+  FROM venue AS v
+  LEFT JOIN booking AS b ON b.venue_code = v.venue_code
+  LEFT JOIN session AS s ON s.booking_id = b.booking_id
+                         AND s.ticket_category = 'VIP'
+  ORDER BY v.venue_code, b.booking_id, s.session_code;
   ```
 
-  *Result / Behavior:*
-  
+  *Result / Behavior:* All four venues are preserved. `V-METRO` and `V-PARK` show their VIP rows, `V-BAY` appears with `NULL` in the category column, and `V-CAMPUS` appears as an all-NULL row.
+
+  **Observed:** 8 rows — 3 for `V-METRO` (one VIP, two NULL), 2 for `V-BAY` (both NULL), 2 for `V-PARK` (one VIP, one NULL), and 1 all-NULL row for `V-CAMPUS`.
+
 - **Technical Explanation:**
-  <!-- Why does moving the filter from ON to WHERE strip preserved NULL rows in an outer join? -->
+  A `LEFT JOIN` produces NULL-extended rows for right-side rows that have no match. `WHERE` is evaluated **after** the join, so a condition like `s.ticket_category = 'VIP'` is tested against those NULLs. Comparing NULL with `=` yields *unknown*, not true, so every NULL-extended row is rejected — and with it, the venues that had no VIP session. The filter therefore destroys the preservation the outer join was supposed to provide.
   
+  `ON` is evaluated **during** matching. `AND s.ticket_category = 'VIP'` only decides which `session` rows count as a match; venues and bookings that fail that test are still kept, with NULLs in the session columns. That is why the filter belongs in `ON` when the goal is "all venues, plus their VIP bookings where they exist".
+
 ### Reflection
 
 Why is `= NULL` the wrong way to find unbooked venues, and what is the correct test?
+
+`NULL` means "unknown", not "empty". Any comparison with it — `=`, `!=`, `<`, `>` — evaluates to *unknown*, and `WHERE` only keeps rows that evaluate to true. `WHERE b.booking_id = NULL` therefore matches nothing at all, not even the unbooked venues. The correct test is `WHERE b.booking_id IS NULL`, which asks whether the value is absent rather than comparing it to anything.
 
 ---
 
