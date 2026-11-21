@@ -901,22 +901,34 @@ A `NOT NULL` column normally cannot be added to a populated table, because the e
 
 ### Self-Audit Checklist
 
-- [ ] All three anomalies (update, insert, delete) clearly explained with examples
-- [ ] Schema systematically normalized from flat table $\rightarrow$ 1NF $\rightarrow$ 2NF $\rightarrow$ 3NF
-- [ ] Speakers modeled with a junction table
-- [ ] All primary keys underlined and foreign keys marked in schema notation
-- [ ] DDL created with `NOT NULL`, `UNIQUE`, `DEFAULT`, and `CHECK` constraints
-- [ ] 4-step Safe Change Loop followed for the `UPDATE` and the `DELETE`
-- [ ] Invalid insert correctly triggered and documented MySQL constraint error
-- [ ] Query 1 properly uses parentheses for `AND` / `OR` operator precedence
-- [ ] Query 4 properly uses `HAVING` instead of `WHERE` for aggregate filter
-- [ ] Outer join missing-record query uses `IS NULL` check
-- [ ] Silent inner join trap clearly explained with both query variations
-- [ ] `ALTER TABLE` successfully executed and invalid status rejected
-- [ ] Integrated synthesis report combines joins, aggregation, grouping, and ordering
+- [x] All three anomalies (update, insert, delete) clearly explained with examples — Task 1 cites rows 1/2/4 (capacity), the `NOT NULL` insert blocker, and booking 103 (lost organizer and speaker).
+- [x] Schema systematically normalized from flat table $\rightarrow$ 1NF $\rightarrow$ 2NF $\rightarrow$ 3NF — Task 1 sections 3 and 4.
+- [x] Speakers modeled with a junction table — `SessionSpeaker(booking_id, session_code, speaker_id)`, 11 links migrated.
+- [x] All primary keys underlined and foreign keys marked in schema notation — Task 1 section 4.
+- [x] DDL created with `NOT NULL`, `UNIQUE`, `DEFAULT`, and `CHECK` constraints — verified in Task 2 via `SHOW CREATE TABLE`.
+- [x] 4-step Safe Change Loop followed for the `UPDATE` and the `DELETE` — Task 3, both loops documented with counts.
+- [x] Invalid insert correctly triggered and documented MySQL constraint error — `ERROR 3819`, `chk_ticket_price`.
+- [x] Query 1 properly uses parentheses for `AND` / `OR` operator precedence — returned 3 rows; booking 106 correctly excluded.
+- [x] Query 4 properly uses `HAVING` instead of `WHERE` for aggregate filter — VIP dropped at 3 tickets.
+- [x] Outer join missing-record query uses `IS NULL` check — returned `V-CAMPUS`.
+- [x] Silent inner join trap clearly explained with both query variations — Version A 2 rows vs Version B 8 rows.
+- [x] `ALTER TABLE` successfully executed and invalid status rejected — `chk_venue_status`, `ERROR 3819` at line 40.
+- [x] Integrated synthesis report combines joins, aggregation, grouping, and ordering — 2 rows ordered by `total_revenue`.
 
 ### Concluding Reflection
 
 1. What was the most significant challenge when decomposing the unnormalized flat table into 3NF, and how did separating entities improve data integrity?
 
+The hardest part was the composite key. `session_code` looks like a session identifier, but `SESS-A1` appears under booking 101 (*Modern Web & DB Summit*) and booking 103 (*AI & Cloud Infrastructure*) with different event titles. That means a session code is only unique inside its booking, and the real grain of the table is a booking line: `(booking_id, session_code)`. Understanding that is what made the 2NF split correct — `booking_date`, `event_title`, `organizer_id`, and `venue_code` depend on `booking_id` alone, so they had to leave `Session`.
+
+The second challenge was `speaker_list`. The flat table contains only names, no IDs, and repeats them across rows (`Dr. Perez` appears twice). Splitting the string was mechanical, but attaching speakers to sessions required inventing a surrogate `speaker_id` and resolving names back through `UNIQUE(speaker_name)`.
+
+Separating the entities improved integrity in ways the flat table could not: one venue row means a capacity change is a single `UPDATE` instead of three; `UNIQUE(organizer_email)` makes duplicate organizers impossible; foreign keys stop a booking from pointing at a venue that does not exist; and `CHECK (ticket_price >= 0.00)` rejected the `-100.00` insert that the flat table would have silently accepted. The `SessionSpeaker` primary key also makes the same speaker appearing twice in one session impossible.
+
 2. What are the practical performance tradeoffs between keeping a single flat table versus querying multiple normalized tables using `JOIN`s in a high-traffic production environment?
+
+The flat table is faster for reads: one row scan, no joins, no query planner decisions about join order. That is why it is attractive for reporting and exports. The cost is paid on writes and correctness — a venue's capacity is duplicated on every booking row, so an update touches many rows and can contend for locks on hot rows, and nothing enforces that one venue has one capacity.
+
+The 3NF schema pays a join cost per query. The Task 6 report walks `venue → booking → session`, so each hop needs an index lookup; with large tables, bad join order or a missing index on a foreign key turns a fast report into a slow one. In exchange, rows are narrower (better cache density), an update touches exactly one row, and constraints protect the data.
+
+In a high-traffic production system I would keep the normalized tables as the source of truth for transactions, index every foreign key, and avoid `SELECT *` across joins. For heavy analytics I would add a read replica, a materialized view, or a scheduled reporting table rather than denormalizing the transactional schema — the flat table in this assessment is effectively that kind of denormalized report, and it is exactly the design that produced the anomalies in Task 1.
